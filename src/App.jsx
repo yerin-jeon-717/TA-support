@@ -49,7 +49,7 @@ const App = () => {
 
   const dropdownRef = useRef(null);
   
-  // API 키 로드 (Vercel 환경 변수 우선, 없으면 하드코딩된 값 사용)
+  // API 키 로드
   const apiKey = import.meta.env?.VITE_GEMINI_API_KEY || "AIzaSyBsttxX1PxzB5X0FPSkZbKXMPccK3hpfwk"; 
 
   // --- 리더십 원칙 (LP) ---
@@ -66,7 +66,15 @@ const App = () => {
     10. Deliver Results: 결과로 증명하는 책임감.
   `;
 
-  // --- CSV 파싱 로직 ---
+  // --- 유틸리티: 객체에서 대소문자 무관하게 키 찾기 ---
+  const getFlexibleValue = (obj, targetKey) => {
+    if (!obj) return '';
+    const keys = Object.keys(obj);
+    const foundKey = keys.find(k => k.trim().toUpperCase() === targetKey.toUpperCase());
+    return foundKey ? obj[foundKey] : '';
+  };
+
+  // --- CSV 파싱 로직 (복잡한 줄바꿈 대응) ---
   const parseCSV = (csvText) => {
     const lines = [];
     let currentLine = [];
@@ -131,15 +139,15 @@ const App = () => {
     const term = e.target.value;
     setSearchTerm(term);
     setIsDropdownOpen(true);
-    // 검색 중에는 선택 상태 해제 (확실히 클릭하도록 유도)
-    if (selectedPosition && term !== selectedPosition['포지션명']) {
+    
+    if (selectedPosition && term !== getFlexibleValue(selectedPosition, '포지션명')) {
         setSelectedPosition(null);
         setJdInput('');
     }
     
     const filtered = positions.filter(p => {
-      const posName = p['포지션명']?.toLowerCase() || '';
-      const posId = p['공고 ID']?.toLowerCase() || '';
+      const posName = getFlexibleValue(p, '포지션명').toLowerCase();
+      const posId = getFlexibleValue(p, '공고 ID').toLowerCase();
       return posName.includes(term.toLowerCase()) || posId.includes(term.toLowerCase());
     });
     setFilteredPositions(filtered);
@@ -147,10 +155,18 @@ const App = () => {
 
   const selectPosition = (pos) => {
     setSelectedPosition(pos);
-    setSearchTerm(pos['포지션명']);
-    setJdInput(pos['JD'] || '');
+    const name = getFlexibleValue(pos, '포지션명');
+    const content = getFlexibleValue(pos, 'JD');
+    
+    setSearchTerm(name);
+    setJdInput(content);
     setIsDropdownOpen(false);
-    setError(null); // 에러 초기화
+    setError(null);
+
+    if (!content || content.trim() === '') {
+      const allKeys = Object.keys(pos).join(', ');
+      setError(`선택한 포지션에 JD 내용이 없습니다. (확인된 컬럼: ${allKeys})`);
+    }
   };
 
   const handleFileUpload = (e) => {
@@ -159,14 +175,12 @@ const App = () => {
   };
 
   const handleGenerate = async () => {
-    // 검증 강화: 포지션 객체 자체가 있어야 함
     if (!selectedPosition) { 
         setError('목록에서 포지션을 클릭하여 선택해 주세요.'); 
         return; 
     }
-    // 포지션은 선택했으나 JD 내용이 없는 경우
     if (!jdInput || jdInput.trim() === '') {
-        setError('선택한 포지션의 JD 데이터가 비어 있습니다. 시트를 확인해 주세요.');
+        setError('선택한 포지션의 JD 데이터가 비어 있습니다. 시트의 "JD" 열에 내용이 있는지 확인해 주세요.');
         return;
     }
 
@@ -192,16 +206,10 @@ const App = () => {
       }
 
       const result = await res.json();
-      
-      if (!result.candidates || result.candidates.length === 0) {
-        throw new Error("AI가 응답을 생성하지 못했습니다. 입력 내용을 확인하세요.");
-      }
-
       const responseText = result.candidates[0].content.parts[0].text;
       const parsed = JSON.parse(responseText);
       setQuestions(parsed.questions || []);
     } catch (err) { 
-      console.error("Generate Error:", err);
       setError(`질문 생성 실패: ${err.message}`); 
     }
     finally { setLoading(false); }
@@ -220,7 +228,6 @@ const App = () => {
 
   return (
     <div className="flex flex-col h-screen bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 px-10 py-6 flex justify-between items-center shrink-0 z-[60] shadow-sm">
         <div className="flex items-center gap-5">
           <div className="bg-slate-900 p-3 rounded-[20px] shadow-2xl ring-4 ring-slate-50">
@@ -250,11 +257,8 @@ const App = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 flex overflow-hidden">
-        {/* Left Side */}
         <div className="w-[480px] bg-white border-r border-slate-200 p-10 overflow-y-auto space-y-10 scrollbar-hide shadow-inner">
-          
           <div className="space-y-5">
             <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 <Database className="w-4 h-4 text-indigo-500" /> Step 1. 포지션 JD 선택
@@ -286,8 +290,8 @@ const App = () => {
                         onClick={() => selectPosition(pos)}
                         className="w-full px-6 py-4 text-left hover:bg-slate-50 flex items-center justify-between group transition-colors border-b border-slate-50 last:border-0"
                       >
-                        <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{pos['포지션명'] || '이름 없음'}</span>
-                        <span className="text-[10px] text-slate-300 font-mono group-hover:text-indigo-400">{pos['공고 ID']}</span>
+                        <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{getFlexibleValue(pos, '포지션명') || '이름 없음'}</span>
+                        <span className="text-[10px] text-slate-300 font-mono group-hover:text-indigo-400">{getFlexibleValue(pos, '공고 ID')}</span>
                       </button>
                     ))
                   ) : (
@@ -357,7 +361,6 @@ const App = () => {
           </button>
         </div>
 
-        {/* Right Side */}
         <div className="flex-1 p-12 overflow-y-auto bg-[#F1F5F9] scrollbar-hide relative">
           {questions.length > 0 ? (
             <div className="max-w-5xl mx-auto animate-in fade-in duration-700 pb-32">
