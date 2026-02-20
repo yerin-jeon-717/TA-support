@@ -19,7 +19,8 @@ import {
   UploadCloud,
   ChevronDown,
   Info,
-  Clock
+  Clock,
+  Check
 } from 'lucide-react';
 
 // --- 구글 시트 설정 ---
@@ -130,6 +131,11 @@ const App = () => {
     const term = e.target.value;
     setSearchTerm(term);
     setIsDropdownOpen(true);
+    // 검색 중에는 선택 상태 해제 (확실히 클릭하도록 유도)
+    if (selectedPosition && term !== selectedPosition['포지션명']) {
+        setSelectedPosition(null);
+        setJdInput('');
+    }
     
     const filtered = positions.filter(p => {
       const posName = p['포지션명']?.toLowerCase() || '';
@@ -144,6 +150,7 @@ const App = () => {
     setSearchTerm(pos['포지션명']);
     setJdInput(pos['JD'] || '');
     setIsDropdownOpen(false);
+    setError(null); // 에러 초기화
   };
 
   const handleFileUpload = (e) => {
@@ -152,7 +159,17 @@ const App = () => {
   };
 
   const handleGenerate = async () => {
-    if (!jdInput) { setError('포지션을 먼저 선택해 주세요.'); return; }
+    // 검증 강화: 포지션 객체 자체가 있어야 함
+    if (!selectedPosition) { 
+        setError('목록에서 포지션을 클릭하여 선택해 주세요.'); 
+        return; 
+    }
+    // 포지션은 선택했으나 JD 내용이 없는 경우
+    if (!jdInput || jdInput.trim() === '') {
+        setError('선택한 포지션의 JD 데이터가 비어 있습니다. 시트를 확인해 주세요.');
+        return;
+    }
+
     setLoading(true);
     setError(null);
     
@@ -239,19 +256,25 @@ const App = () => {
         <div className="w-[480px] bg-white border-r border-slate-200 p-10 overflow-y-auto space-y-10 scrollbar-hide shadow-inner">
           
           <div className="space-y-5">
-            <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Database className="w-4 h-4 text-indigo-500" /> Step 1. 포지션 JD 선택</label>
+            <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <Database className="w-4 h-4 text-indigo-500" /> Step 1. 포지션 JD 선택
+            </label>
             <div className="relative" ref={dropdownRef}>
               <div className="relative z-50">
-                <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Search className={`absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${selectedPosition ? 'text-indigo-500' : 'text-slate-400'}`} />
                 <input 
                   type="text" 
-                  className="w-full pl-12 pr-12 py-5 bg-slate-50 border border-slate-200 rounded-[24px] text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
-                  placeholder="포지션명 검색 (입력 시 목록이 나타납니다)"
+                  className={`w-full pl-12 pr-12 py-5 bg-slate-50 border rounded-[24px] text-sm font-bold outline-none transition-all shadow-sm ${selectedPosition ? 'border-indigo-500 ring-4 ring-indigo-500/5 text-indigo-900' : 'border-slate-200 text-slate-700 focus:ring-4 focus:ring-indigo-500/10'}`}
+                  placeholder="포지션명 검색 (목록에서 클릭해 주세요)"
                   value={searchTerm}
                   onChange={handleSearch}
                   onFocus={() => setIsDropdownOpen(true)}
                 />
-                <ChevronDown className={`absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                {selectedPosition ? (
+                    <Check className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500" />
+                ) : (
+                    <ChevronDown className={`absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                )}
               </div>
               
               {isDropdownOpen && (
@@ -268,15 +291,16 @@ const App = () => {
                       </button>
                     ))
                   ) : (
-                    <div className="px-6 py-8 text-center text-slate-400 text-xs italic">데이터가 없습니다.</div>
+                    <div className="px-6 py-8 text-center text-slate-400 text-xs italic">매칭되는 데이터가 없습니다.</div>
                   )}
                 </div>
               )}
             </div>
             {jdInput && (
               <div className="relative animate-in slide-in-from-top-4 duration-500">
-                <textarea className="w-full h-40 p-6 bg-slate-900 text-indigo-100 rounded-[28px] text-[11px] font-mono outline-none resize-none leading-relaxed overflow-y-auto shadow-2xl border border-slate-800" value={jdInput} readOnly />
-                <div className="absolute top-4 right-4"><Gem className="w-4 h-4 text-indigo-400/30" /></div>
+                <div className="absolute top-4 left-6 z-10 bg-indigo-600 text-[9px] font-black text-white px-2 py-0.5 rounded uppercase tracking-widest shadow-lg">JD Content Locked</div>
+                <textarea className="w-full h-40 p-8 pt-10 bg-slate-900 text-indigo-100 rounded-[28px] text-[11px] font-mono outline-none resize-none leading-relaxed overflow-y-auto shadow-2xl border border-slate-800" value={jdInput} readOnly />
+                <div className="absolute bottom-4 right-4"><Gem className="w-4 h-4 text-indigo-400/30" /></div>
               </div>
             )}
           </div>
@@ -326,10 +350,10 @@ const App = () => {
             </div>
           </div>
 
-          {error && <div className="p-5 bg-red-50 text-red-600 rounded-[24px] text-[11px] font-bold border border-red-100 shadow-sm flex items-start gap-3"><AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span></div>}
+          {error && <div className="p-5 bg-red-50 text-red-600 rounded-[24px] text-[11px] font-bold border border-red-100 shadow-sm flex items-start gap-3 animate-in shake duration-500"><AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span></div>}
 
           <button onClick={handleGenerate} disabled={loading || syncing} className="w-full bg-slate-900 text-white py-6 rounded-[32px] font-black text-base shadow-2xl transition-all flex items-center justify-center gap-4 hover:bg-black active:scale-[0.98] disabled:opacity-50">
-            {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />} {loading ? "분석 중..." : "Generate Interview Guide"}
+            {loading ? <Loader2 className="w-6 h-6 animate-spin text-indigo-400" /> : <Send className="w-6 h-6" />} {loading ? "전략 분석 중..." : "Generate Interview Guide"}
           </button>
         </div>
 
