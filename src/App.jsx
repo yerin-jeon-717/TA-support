@@ -17,7 +17,9 @@ import {
   X,
   FileText,
   UploadCloud,
-  ChevronDown
+  ChevronDown,
+  Info,
+  Clock
 } from 'lucide-react';
 
 // --- 구글 시트 설정 ---
@@ -61,7 +63,7 @@ const App = () => {
     10. Deliver Results: 결과로 증명하는 책임감.
   `;
 
-  // --- CSV 파싱 ---
+  // --- CSV 파싱 로직 ---
   const parseCSV = (csvText) => {
     const lines = [];
     let currentLine = [];
@@ -98,13 +100,17 @@ const App = () => {
 
   const fetchJDDatabase = async () => {
     setSyncing(true);
+    setError(null);
     try {
       const response = await fetch(SHEET_CSV_URL);
+      if (!response.ok) throw new Error("시트 접근에 실패했습니다. 공유 설정을 확인하세요.");
       const csvText = await response.text();
       const parsedData = parseCSV(csvText);
       setPositions(parsedData);
       setFilteredPositions(parsedData);
-    } catch (err) { setError("데이터 로드 실패"); }
+    } catch (err) { 
+      setError("데이터 동기화 실패: 시트가 공개되어 있는지 확인해 주세요."); 
+    }
     finally { setSyncing(false); }
   };
 
@@ -122,10 +128,12 @@ const App = () => {
     const term = e.target.value;
     setSearchTerm(term);
     setIsDropdownOpen(true);
-    const filtered = positions.filter(p => 
-      p['포지션명']?.toLowerCase().includes(term.toLowerCase()) || 
-      p['공고 ID']?.toLowerCase().includes(term.toLowerCase())
-    );
+    
+    const filtered = positions.filter(p => {
+      const posName = p['포지션명']?.toLowerCase() || '';
+      const posId = p['공고 ID']?.toLowerCase() || '';
+      return posName.includes(term.toLowerCase()) || posId.includes(term.toLowerCase());
+    });
     setFilteredPositions(filtered);
   };
 
@@ -159,7 +167,7 @@ const App = () => {
       const result = await res.json();
       const parsed = JSON.parse(result.candidates[0].content.parts[0].text);
       setQuestions(parsed.questions || []);
-    } catch (err) { setError("질문 생성 실패"); }
+    } catch (err) { setError("질문 생성 실패: 네트워크 혹은 API 키 설정을 확인하세요."); }
     finally { setLoading(false); }
   };
 
@@ -177,45 +185,49 @@ const App = () => {
   return (
     <div className="flex flex-col h-screen bg-[#F8FAFC] text-slate-900 overflow-hidden font-sans">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-10 py-6 flex justify-between items-center shrink-0 z-50 shadow-sm">
+      <header className="bg-white border-b border-slate-200 px-10 py-6 flex justify-between items-center shrink-0 z-[60] shadow-sm">
         <div className="flex items-center gap-5">
           <div className="bg-slate-900 p-3 rounded-[20px] shadow-2xl ring-4 ring-slate-50">
             <Users className="text-white w-7 h-7" />
           </div>
           <div>
             <h1 className="text-2xl font-black tracking-tighter text-slate-900 leading-none mb-1">Interview Supporter</h1>
-            <p className="text-[11px] text-indigo-600 font-bold uppercase tracking-[0.15em] flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" /> Premium Selection Module
-            </p>
+            <div className="flex items-center gap-2">
+                <p className="text-[11px] text-indigo-600 font-bold uppercase tracking-[0.15em] flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" /> Premium Module
+                </p>
+                <span className="bg-slate-100 text-[9px] text-slate-400 px-2 py-0.5 rounded-full font-bold">v1.2 Fixed</span>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-6">
-          <div className="flex p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
+          <div className="flex p-1.5 bg-slate-100 rounded-2xl border border-slate-200 shadow-inner">
             {['teatime', '1st_interview', '2nd_interview'].map((t) => (
-              <button key={t} onClick={() => setSessionType(t)} className={`px-8 py-3 rounded-xl text-xs font-black transition-all ${sessionType === t ? 'bg-white text-indigo-600 shadow-lg' : 'text-slate-500'}`}>
+              <button key={t} onClick={() => setSessionType(t)} className={`px-8 py-3 rounded-xl text-xs font-black transition-all ${sessionType === t ? 'bg-white text-indigo-600 shadow-lg' : 'text-slate-500 hover:text-slate-700'}`}>
                 {t === 'teatime' ? '티타임' : t === '1st_interview' ? '1차' : '2차'}
               </button>
             ))}
           </div>
-          <button onClick={fetchJDDatabase} className={`p-3 rounded-2xl border ${syncing ? 'animate-spin' : ''}`}><RefreshCw className="w-5 h-5 text-slate-400" /></button>
+          <button onClick={fetchJDDatabase} className={`p-3 rounded-2xl border transition-all hover:bg-slate-50 ${syncing ? 'animate-spin' : ''}`}>
+            <RefreshCw className={`w-5 h-5 ${syncing ? 'text-indigo-600' : 'text-slate-400'}`} />
+          </button>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="flex-1 flex overflow-hidden">
-        {/* Left Side: Inputs */}
+        {/* Left Side */}
         <div className="w-[480px] bg-white border-r border-slate-200 p-10 overflow-y-auto space-y-10 scrollbar-hide shadow-inner">
           
-          {/* Step 1: 포지션 JD 선택 */}
           <div className="space-y-5">
             <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Database className="w-4 h-4 text-indigo-500" /> Step 1. 포지션 JD 선택</label>
             <div className="relative" ref={dropdownRef}>
-              <div className="relative">
+              <div className="relative z-50">
                 <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input 
                   type="text" 
-                  className="w-full pl-12 pr-12 py-5 bg-slate-50 border border-slate-200 rounded-[24px] text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
-                  placeholder="포지션명 또는 ID 검색..."
+                  className="w-full pl-12 pr-12 py-5 bg-slate-50 border border-slate-200 rounded-[24px] text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
+                  placeholder="포지션명 검색 (입력 시 목록이 나타납니다)"
                   value={searchTerm}
                   onChange={handleSearch}
                   onFocus={() => setIsDropdownOpen(true)}
@@ -223,59 +235,65 @@ const App = () => {
                 <ChevronDown className={`absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
               </div>
               
-              {isDropdownOpen && filteredPositions.length > 0 && (
-                <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-[24px] shadow-2xl z-40 max-h-64 overflow-y-auto scrollbar-hide py-2 animate-in fade-in slide-in-from-top-2">
-                  {filteredPositions.map((pos, idx) => (
-                    <button 
-                      key={idx} 
-                      onClick={() => selectPosition(pos)}
-                      className="w-full px-6 py-4 text-left hover:bg-slate-50 flex items-center justify-between group transition-colors"
-                    >
-                      <span className="text-sm font-bold text-slate-700">{pos['포지션명']}</span>
-                      <span className="text-[10px] text-slate-300 font-mono group-hover:text-indigo-400">{pos['공고 ID']}</span>
-                    </button>
-                  ))}
+              {isDropdownOpen && (
+                <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-[24px] shadow-2xl z-[100] max-h-64 overflow-y-auto scrollbar-hide py-2 animate-in fade-in slide-in-from-top-2">
+                  {filteredPositions.length > 0 ? (
+                    filteredPositions.map((pos, idx) => (
+                      <button 
+                        key={idx} 
+                        onClick={() => selectPosition(pos)}
+                        className="w-full px-6 py-4 text-left hover:bg-slate-50 flex items-center justify-between group transition-colors border-b border-slate-50 last:border-0"
+                      >
+                        <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{pos['포지션명'] || '이름 없음'}</span>
+                        <span className="text-[10px] text-slate-300 font-mono group-hover:text-indigo-400">{pos['공고 ID']}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-6 py-8 text-center text-slate-400 text-xs italic">데이터가 없습니다.</div>
+                  )}
                 </div>
               )}
             </div>
-            {jdInput && <textarea className="w-full h-40 p-6 bg-slate-900 text-indigo-100 rounded-[28px] text-[11px] font-mono outline-none resize-none leading-relaxed overflow-y-auto shadow-2xl" value={jdInput} readOnly />}
+            {jdInput && (
+              <div className="relative animate-in slide-in-from-top-4 duration-500">
+                <textarea className="w-full h-40 p-6 bg-slate-900 text-indigo-100 rounded-[28px] text-[11px] font-mono outline-none resize-none leading-relaxed overflow-y-auto shadow-2xl border border-slate-800" value={jdInput} readOnly />
+                <div className="absolute top-4 right-4"><Gem className="w-4 h-4 text-indigo-400/30" /></div>
+              </div>
+            )}
           </div>
 
-          {/* Step 2: 후보자 이력서 업로드 */}
           <div className="space-y-5">
             <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileUp className="w-4 h-4 text-indigo-500" /> Step 2. 후보자 이력서 업로드</label>
-            <div className="relative border-2 border-dashed border-slate-200 rounded-[28px] p-8 flex flex-col items-center justify-center bg-slate-50/50 hover:bg-slate-50 transition-all cursor-pointer group">
+            <div className="relative border-2 border-dashed border-slate-200 rounded-[28px] p-8 flex flex-col items-center justify-center bg-slate-50/50 hover:bg-slate-50 transition-all cursor-pointer group shadow-sm">
               <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} />
               {uploadedFile ? (
                 <div className="flex flex-col items-center gap-3">
                   <div className="bg-indigo-600 p-3 rounded-2xl shadow-lg"><FileText className="text-white w-6 h-6" /></div>
                   <p className="text-sm font-black text-slate-700">{uploadedFile.name}</p>
-                  <button onClick={(e) => { e.stopPropagation(); setUploadedFile(null); }} className="text-[11px] text-red-500 font-bold flex items-center gap-1 hover:underline"><X className="w-3 h-3" /> 파일 제거</button>
+                  <button onClick={(e) => { e.stopPropagation(); setUploadedFile(null); }} className="text-[11px] text-red-500 font-bold flex items-center gap-1 hover:underline"><X className="w-3 h-3" /> 제거</button>
                 </div>
               ) : (
                 <>
                   <UploadCloud className="w-10 h-10 text-slate-300 mb-4 group-hover:text-indigo-400 transition-colors" />
-                  <p className="text-sm font-bold text-slate-500">이력서(PDF/이미지) 드래그 또는 클릭</p>
-                  <p className="text-[10px] text-slate-400 mt-2 font-medium italic">AI가 파일의 핵심 내용을 참고하여 질문을 생성합니다.</p>
+                  <p className="text-sm font-bold text-slate-500">이력서 파일 드래그 또는 클릭</p>
                 </>
               )}
             </div>
             <textarea 
-              className="w-full h-32 p-6 bg-white border border-slate-200 rounded-[28px] text-sm shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
-              placeholder="후보자의 주요 성과나 특징을 요약해서 적어주시면 더 날카로운 질문이 생성됩니다."
+              className="w-full h-32 p-6 bg-white border border-slate-200 rounded-[28px] text-sm shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-300"
+              placeholder="후보자의 주요 성과나 특징을 요약해서 적어주세요."
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
             />
           </div>
 
-          {/* Step 3: 추가 설명 */}
           <div className="space-y-5">
             <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MessageSquare className="w-4 h-4 text-indigo-500" /> Step 3. 추가 설명</label>
             <div className="space-y-4">
               {sessionType === '2nd_interview' && (
                 <textarea 
-                  className="w-full h-28 p-5 bg-amber-50 border border-amber-100 rounded-[24px] text-xs outline-none shadow-sm"
-                  placeholder="1차 면접에서 강조되었던 리스크 포인트나 꼭 검증해야 할 사항을 입력해 주세요."
+                  className="w-full h-28 p-5 bg-amber-50 border border-amber-100 rounded-[24px] text-xs outline-none shadow-sm font-medium"
+                  placeholder="1차 면접 피드백 입력..."
                   value={firstRoundFeedback}
                   onChange={(e) => setFirstRoundFeedback(e.target.value)}
                 />
@@ -289,20 +307,20 @@ const App = () => {
             </div>
           </div>
 
-          {error && <div className="p-5 bg-red-50 text-red-600 rounded-[24px] text-[11px] font-bold border border-red-100 shadow-sm">{error}</div>}
+          {error && <div className="p-5 bg-red-50 text-red-600 rounded-[24px] text-[11px] font-bold border border-red-100 shadow-sm flex items-start gap-3"><AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span></div>}
 
-          <button onClick={handleGenerate} disabled={loading || syncing} className="w-full bg-slate-900 text-white py-6 rounded-[32px] font-black text-base shadow-2xl transition-all flex items-center justify-center gap-4 hover:bg-black active:scale-[0.98]">
+          <button onClick={handleGenerate} disabled={loading || syncing} className="w-full bg-slate-900 text-white py-6 rounded-[32px] font-black text-base shadow-2xl transition-all flex items-center justify-center gap-4 hover:bg-black active:scale-[0.98] disabled:opacity-50">
             {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />} {loading ? "분석 중..." : "Generate Interview Guide"}
           </button>
         </div>
 
-        {/* Right Side: Results */}
-        <div className="flex-1 p-12 overflow-y-auto bg-[#F1F5F9] scrollbar-hide">
+        {/* Right Side */}
+        <div className="flex-1 p-12 overflow-y-auto bg-[#F1F5F9] scrollbar-hide relative">
           {questions.length > 0 ? (
             <div className="max-w-5xl mx-auto animate-in fade-in duration-700 pb-32">
               <div className="flex justify-between items-end mb-14">
                 <h2 className="text-6xl font-black text-slate-900 tracking-tighter leading-tight italic">Selection Guide</h2>
-                <button onClick={copyToClipboard} className="px-10 py-5 bg-white border-2 border-slate-900 rounded-[30px] text-sm font-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all">표 복사하기</button>
+                <button onClick={copyToClipboard} className="px-10 py-5 bg-white border-2 border-slate-900 rounded-[30px] text-sm font-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all">전체 복사</button>
               </div>
               <div className="bg-white rounded-[64px] shadow-2xl border border-white overflow-hidden">
                 <table className="w-full text-left">
@@ -316,10 +334,10 @@ const App = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {questions.map((q) => (
-                      <tr key={q.no} className="hover:bg-indigo-50/30 group">
+                      <tr key={q.no} className="hover:bg-indigo-50/30 group transition-all">
                         <td className="px-12 py-10 text-base text-slate-300 font-black text-center group-hover:text-indigo-500">{q.no}</td>
-                        <td className="px-12 py-10"><span className="px-5 py-2.5 bg-slate-50 text-slate-600 rounded-2xl text-[10px] font-black group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">{q.group}</span></td>
-                        <td className="px-12 py-10 font-bold text-[18px] text-slate-800 leading-snug group-hover:text-indigo-950 transition-colors">{q.content}</td>
+                        <td className="px-12 py-10"><span className="px-5 py-2.5 bg-slate-50 text-slate-600 rounded-2xl text-[10px] font-black group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm uppercase">{q.group}</span></td>
+                        <td className="px-12 py-10 font-bold text-[18px] text-slate-800 leading-snug group-hover:text-indigo-950 transition-colors tracking-tight">{q.content}</td>
                         <td className="px-12 py-10 text-right italic text-[11px] text-slate-400 font-bold leading-tight">{q.intent}</td>
                       </tr>
                     ))}
@@ -334,7 +352,7 @@ const App = () => {
               </div>
               <div className="text-center space-y-4">
                 <h3 className="text-5xl font-black text-slate-900 tracking-tighter leading-tight">Ready to Deep Scan</h3>
-                <p className="text-slate-400 font-bold max-w-sm mx-auto">백엔드 데이터와 LP를 기반으로 질문을 설계합니다.</p>
+                {positions.length === 0 && !syncing && <p className="text-red-500 font-bold">시트 데이터를 불러오지 못했습니다. [공유 설정]을 확인하세요!</p>}
               </div>
             </div>
           )}
