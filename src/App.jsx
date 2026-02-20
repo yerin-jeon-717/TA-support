@@ -49,8 +49,10 @@ const App = () => {
 
   const dropdownRef = useRef(null);
   
-  // 🔐 API Key (Vercel 환경변수 우선, 없으면 빈값 처리하여 에러 유도)
-  const apiKey = import.meta.env?.VITE_GEMINI_API_KEY || "VITE_GEMINI_API_KEY=AIzaSyBsttxX1PxzB5X0FPSkZbKXMPccK3hpfwk"; 
+  // 🔐 API Key 로드 로직
+  // 1순위: Vercel 환경변수 (배포용)
+  // 2순위: 하드코딩된 키 (테스트용 - 필요시 아래 "" 사이에 키를 넣으세요)
+  const apiKey = import.meta.env?.VITE_GEMINI_API_KEY || "AIzaSyBsttxX1PxzB5X0FPSkZbKXMPccK3hpfwk"; 
 
   const LEADERSHIP_PRINCIPLES = `
     1. Design the Future: 미래를 긍정적으로 그리고 오늘의 문제를 치열하게 해결.
@@ -64,6 +66,24 @@ const App = () => {
     9. Act with Urgency: 문제 인식 시 주저 없는 실행.
     10. Deliver Results: 결과로 증명하는 책임감.
   `;
+
+  // API 호출 재시도 로직 (네트워크 불안정 대비)
+  const fetchWithRetry = async (url, options, maxRetries = 3) => {
+    let delay = 1000;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await fetch(url, options);
+        if (response.ok) return response;
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          throw response; // 404, 403 등은 바로 에러 처리
+        }
+      } catch (err) {
+        if (i === maxRetries - 1) throw err;
+      }
+      await new Promise(res => setTimeout(res, delay));
+      delay *= 2;
+    }
+  };
 
   const getFlexibleValue = (obj, targetKeys) => {
     if (!obj) return '';
@@ -118,7 +138,7 @@ const App = () => {
     setError(null);
     try {
       const response = await fetch(SHEET_CSV_URL);
-      if (!response.ok) throw new Error("시트 데이터 로드 실패. 공유 설정을 확인하세요.");
+      if (!response.ok) throw new Error("시트 데이터 로드 실패");
       const csvText = await response.text();
       const parsedData = parseCSV(csvText);
       setPositions(parsedData);
@@ -170,12 +190,12 @@ const App = () => {
   };
 
   const handleGenerate = async () => {
-    if (!apiKey) {
-      setError("API 키가 설정되지 않았습니다. Vercel 환경 변수 'VITE_GEMINI_API_KEY'를 확인하거나 코드에 키를 넣어주세요.");
+    if (!apiKey || apiKey === "") {
+      setError("API 키가 설정되지 않았습니다. Vercel 환경 변수를 확인하세요.");
       return;
     }
     if (!selectedPosition || !jdInput) {
-      setError("포지션을 선택해 주세요.");
+      setError("목록에서 포지션을 클릭하여 선택해 주세요.");
       return;
     }
 
@@ -186,7 +206,11 @@ const App = () => {
       const systemPrompt = `당신은 15년 차 TA 팀장입니다. 뷰티셀렉션 JD와 LP를 분석하여 질문 20개를 생성하세요. JSON { "questions": [...] } 로만 응답하세요.`;
       const userMessage = `세션:${sessionType}\nJD:${jdInput}\n후보자요약:${resumeText}\nLP:${LEADERSHIP_PRINCIPLES}\n추가설명:${additionalContext}\n1차피드백:${firstRoundFeedback}`;
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+      // 모델명을 범용적인 gemini-1.5-flash로 고정
+      const modelName = "gemini-1.5-flash";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+      const res = await fetchWithRetry(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -198,7 +222,7 @@ const App = () => {
 
       if (!res.ok) {
         const errorDetail = await res.json();
-        throw new Error(`[API 에러 ${res.status}] ${errorDetail.error?.message || "알 수 없는 API 에러"}`);
+        throw new Error(`[API 에러 ${res.status}] ${errorDetail.error?.message || "알 수 없는 에러"}`);
       }
 
       const result = await res.json();
@@ -206,7 +230,7 @@ const App = () => {
       const parsed = JSON.parse(responseText);
       setQuestions(parsed.questions || []);
     } catch (err) { 
-      setError(err.message); 
+      setError(err.message || "질문 생성 중 알 수 없는 오류가 발생했습니다."); 
     }
     finally { setLoading(false); }
   };
@@ -235,7 +259,7 @@ const App = () => {
                 <p className="text-[11px] text-indigo-600 font-bold uppercase tracking-[0.15em] flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" /> Premium Module
                 </p>
-                <span className="bg-slate-100 text-[9px] text-slate-400 px-2 py-0.5 rounded-full font-bold">v1.4 Debug-Ready</span>
+                <span className="bg-slate-100 text-[9px] text-slate-400 px-2 py-0.5 rounded-full font-bold">v1.6 Model-Synced</span>
             </div>
           </div>
         </div>
@@ -279,7 +303,7 @@ const App = () => {
                       <span className="text-sm font-bold text-slate-700">{getFlexibleValue(pos, ['포지션명', '포지션', '공고명'])}</span>
                       <span className="text-[10px] text-slate-300 font-mono">{getFlexibleValue(pos, ['공고 ID', 'ID'])}</span>
                     </button>
-                  )) : <div className="px-6 py-8 text-center text-slate-400 text-xs">검색 결과가 없습니다.</div>}
+                  )) : <div className="px-6 py-8 text-center text-slate-400 text-xs italic">검색 결과가 없습니다.</div>}
                 </div>
               )}
             </div>
@@ -310,7 +334,7 @@ const App = () => {
             </div>
           </div>
 
-          {error && <div className="p-5 bg-red-50 text-red-600 rounded-[24px] text-[11px] font-bold border border-red-100 shadow-sm flex items-start gap-3"><AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span></div>}
+          {error && <div className="p-5 bg-red-50 text-red-600 rounded-[24px] text-[11px] font-bold border border-red-100 shadow-sm flex items-start gap-3 animate-in shake duration-500"><AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span></div>}
 
           <button onClick={handleGenerate} disabled={loading || syncing} className="w-full bg-slate-900 text-white py-6 rounded-[32px] font-black text-base shadow-2xl transition-all flex items-center justify-center gap-4 hover:bg-black active:scale-[0.98] disabled:opacity-50">
             {loading ? <Loader2 className="w-6 h-6 animate-spin text-indigo-400" /> : <Send className="w-6 h-6" />} {loading ? "전략 분석 중..." : "Generate Interview Guide"}
@@ -322,7 +346,7 @@ const App = () => {
             <div className="max-w-5xl mx-auto animate-in fade-in duration-700 pb-32">
               <div className="flex justify-between items-end mb-14">
                 <h2 className="text-6xl font-black text-slate-900 tracking-tighter leading-tight italic">Selection Guide</h2>
-                <button onClick={copyToClipboard} className="px-10 py-5 bg-white border-2 border-slate-900 rounded-[30px] text-sm font-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] active:shadow-none transition-all">전체 복사</button>
+                <button onClick={copyToClipboard} className="px-10 py-5 bg-white border-2 border-slate-900 rounded-[30px] text-sm font-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all">전체 복사</button>
               </div>
               <div className="bg-white rounded-[64px] shadow-2xl border border-white overflow-hidden">
                 <table className="w-full text-left">
@@ -331,9 +355,9 @@ const App = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {questions.map((q) => (
-                      <tr key={q.no} className="hover:bg-indigo-50/30 group">
-                        <td className="px-12 py-10 text-base text-slate-300 font-black text-center">{q.no}</td>
-                        <td className="px-12 py-10"><span className="px-5 py-2.5 bg-slate-50 text-slate-600 rounded-2xl text-[10px] font-black group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">{q.group}</span></td>
+                      <tr key={q.no} className="hover:bg-indigo-50/30 group transition-all">
+                        <td className="px-12 py-10 text-base text-slate-300 font-black text-center group-hover:text-indigo-500">{q.no}</td>
+                        <td className="px-12 py-10"><span className="px-5 py-2.5 bg-slate-50 text-slate-600 rounded-2xl text-[10px] font-black group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm uppercase">{q.group}</span></td>
                         <td className="px-12 py-10 font-bold text-[18px] text-slate-800 leading-snug group-hover:text-indigo-950 transition-colors tracking-tight">{q.content}</td>
                         <td className="px-12 py-10 text-right italic text-[11px] text-slate-400 font-bold leading-tight">{q.intent}</td>
                       </tr>
@@ -347,7 +371,7 @@ const App = () => {
               <div className="w-64 h-64 bg-white rounded-[72px] shadow-2xl flex items-center justify-center border border-white animate-bounce duration-[5000ms]"><Target className="w-28 h-28 text-indigo-500" /></div>
               <div className="text-center space-y-4">
                 <h3 className="text-5xl font-black text-slate-900 tracking-tighter leading-tight">Ready to Deep Scan</h3>
-                <p className="text-slate-400 font-bold max-w-sm mx-auto leading-relaxed">포지션을 선택하고 질문을 생성하세요.</p>
+                <p className="text-slate-400 font-bold max-w-sm mx-auto leading-relaxed text-center">포지션을 선택하고 질문을 생성하세요.</p>
               </div>
             </div>
           )}
