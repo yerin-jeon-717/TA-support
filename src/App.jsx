@@ -11,24 +11,24 @@ import {
   Clipboard, 
   MessageSquare, 
   Gem, 
-  Sparkles,
-  AlertCircle,
-  Search,
-  X,
-  FileText,
-  UploadCloud,
-  ChevronDown,
-  Info,
-  Clock,
-  Check
+  Sparkles, 
+  AlertCircle, 
+  Search, 
+  X, 
+  FileText, 
+  UploadCloud, 
+  ChevronDown, 
+  Info, 
+  Clock, 
+  Check 
 } from 'lucide-react';
 
-// --- 구글 시트 설정 ---
+// --- Configuration ---
 const SHEET_ID = "1BU0YaVCsn6taWyUZcQK5GtBpwQE2v8g_Cm7vXJuViwo";
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
 
 const App = () => {
-  // --- 상태 관리 ---
+  // --- States ---
   const [sessionType, setSessionType] = useState('1st_interview');
   const [positions, setPositions] = useState([]);
   const [filteredPositions, setFilteredPositions] = useState([]);
@@ -49,10 +49,10 @@ const App = () => {
 
   const dropdownRef = useRef(null);
   
-  // API 키 로드
+  // API Key
   const apiKey = import.meta.env?.VITE_GEMINI_API_KEY || "AIzaSyBsttxX1PxzB5X0FPSkZbKXMPccK3hpfwk"; 
 
-  // --- 리더십 원칙 (LP) ---
+  // --- Leadership Principles ---
   const LEADERSHIP_PRINCIPLES = `
     1. Design the Future: 미래를 긍정적으로 그리고 오늘의 문제를 치열하게 해결.
     2. Customer Obsession: 고객 관점에서 문제를 정의하고 해결책 구축.
@@ -66,15 +66,27 @@ const App = () => {
     10. Deliver Results: 결과로 증명하는 책임감.
   `;
 
-  // --- 유틸리티: 객체에서 대소문자 무관하게 키 찾기 ---
-  const getFlexibleValue = (obj, targetKey) => {
+  // --- Flexible Column Finder ---
+  const getFlexibleValue = (obj, targetKeys) => {
     if (!obj) return '';
     const keys = Object.keys(obj);
-    const foundKey = keys.find(k => k.trim().toUpperCase() === targetKey.toUpperCase());
-    return foundKey ? obj[foundKey] : '';
+    
+    // 1. 정확히 일치하는 키 찾기 (대소문자/공백 무시)
+    for (const target of targetKeys) {
+      const foundKey = keys.find(k => k.trim().toUpperCase() === target.toUpperCase());
+      if (foundKey && obj[foundKey]) return obj[foundKey];
+    }
+
+    // 2. 포함하는 키 찾기 (예: "JD 내용" 이라면 "JD" 키워드로 찾기)
+    for (const target of targetKeys) {
+      const foundKey = keys.find(k => k.trim().toUpperCase().includes(target.toUpperCase()));
+      if (foundKey && obj[foundKey]) return obj[foundKey];
+    }
+
+    return '';
   };
 
-  // --- CSV 파싱 로직 (복잡한 줄바꿈 대응) ---
+  // --- CSV Parser ---
   const parseCSV = (csvText) => {
     const lines = [];
     let currentLine = [];
@@ -114,13 +126,13 @@ const App = () => {
     setError(null);
     try {
       const response = await fetch(SHEET_CSV_URL);
-      if (!response.ok) throw new Error("시트 접근에 실패했습니다. 공유 설정을 확인하세요.");
+      if (!response.ok) throw new Error("시트 접근 실패");
       const csvText = await response.text();
       const parsedData = parseCSV(csvText);
       setPositions(parsedData);
       setFilteredPositions(parsedData);
     } catch (err) { 
-      setError("데이터 동기화 실패: 시트가 공개되어 있는지 확인해 주세요."); 
+      setError("시트 공유 설정을 확인해 주세요."); 
     }
     finally { setSyncing(false); }
   };
@@ -134,20 +146,23 @@ const App = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // --- 검색 로직 ---
+  // --- Search Logic ---
   const handleSearch = (e) => {
     const term = e.target.value;
     setSearchTerm(term);
     setIsDropdownOpen(true);
     
-    if (selectedPosition && term !== getFlexibleValue(selectedPosition, '포지션명')) {
+    if (selectedPosition) {
+      const name = getFlexibleValue(selectedPosition, ['포지션명', '포지션', '공고명']);
+      if (term !== name) {
         setSelectedPosition(null);
         setJdInput('');
+      }
     }
     
     const filtered = positions.filter(p => {
-      const posName = getFlexibleValue(p, '포지션명').toLowerCase();
-      const posId = getFlexibleValue(p, '공고 ID').toLowerCase();
+      const posName = getFlexibleValue(p, ['포지션명', '포지션', '공고명']).toLowerCase();
+      const posId = getFlexibleValue(p, ['공고 ID', 'ID']).toLowerCase();
       return posName.includes(term.toLowerCase()) || posId.includes(term.toLowerCase());
     });
     setFilteredPositions(filtered);
@@ -155,8 +170,8 @@ const App = () => {
 
   const selectPosition = (pos) => {
     setSelectedPosition(pos);
-    const name = getFlexibleValue(pos, '포지션명');
-    const content = getFlexibleValue(pos, 'JD');
+    const name = getFlexibleValue(pos, ['포지션명', '포지션', '공고명']);
+    const content = getFlexibleValue(pos, ['JD 내용', 'JD', '직무기술서']);
     
     setSearchTerm(name);
     setJdInput(content);
@@ -165,7 +180,7 @@ const App = () => {
 
     if (!content || content.trim() === '') {
       const allKeys = Object.keys(pos).join(', ');
-      setError(`선택한 포지션에 JD 내용이 없습니다. (확인된 컬럼: ${allKeys})`);
+      setError(`"JD 내용" 컬럼의 데이터를 찾을 수 없습니다. (확인된 컬럼: ${allKeys})`);
     }
   };
 
@@ -175,14 +190,8 @@ const App = () => {
   };
 
   const handleGenerate = async () => {
-    if (!selectedPosition) { 
-        setError('목록에서 포지션을 클릭하여 선택해 주세요.'); 
-        return; 
-    }
-    if (!jdInput || jdInput.trim() === '') {
-        setError('선택한 포지션의 JD 데이터가 비어 있습니다. 시트의 "JD" 열에 내용이 있는지 확인해 주세요.');
-        return;
-    }
+    if (!selectedPosition) { setError('목록에서 포지션을 클릭하여 선택해 주세요.'); return; }
+    if (!jdInput) { setError('JD 내용이 비어 있습니다.'); return; }
 
     setLoading(true);
     setError(null);
@@ -200,11 +209,7 @@ const App = () => {
         })
       });
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(`API 오류 (${res.status}): ${errorData.error?.message || '알 수 없는 오류'}`);
-      }
-
+      if (!res.ok) throw new Error("AI 생성 오류");
       const result = await res.json();
       const responseText = result.candidates[0].content.parts[0].text;
       const parsed = JSON.parse(responseText);
@@ -239,7 +244,7 @@ const App = () => {
                 <p className="text-[11px] text-indigo-600 font-bold uppercase tracking-[0.15em] flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" /> Premium Module
                 </p>
-                <span className="bg-slate-100 text-[9px] text-slate-400 px-2 py-0.5 rounded-full font-bold">v1.2 Fixed</span>
+                <span className="bg-slate-100 text-[9px] text-slate-400 px-2 py-0.5 rounded-full font-bold">v1.3 Column-Safe</span>
             </div>
           </div>
         </div>
@@ -290,8 +295,8 @@ const App = () => {
                         onClick={() => selectPosition(pos)}
                         className="w-full px-6 py-4 text-left hover:bg-slate-50 flex items-center justify-between group transition-colors border-b border-slate-50 last:border-0"
                       >
-                        <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{getFlexibleValue(pos, '포지션명') || '이름 없음'}</span>
-                        <span className="text-[10px] text-slate-300 font-mono group-hover:text-indigo-400">{getFlexibleValue(pos, '공고 ID')}</span>
+                        <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{getFlexibleValue(pos, ['포지션명', '포지션', '공고명']) || '이름 없음'}</span>
+                        <span className="text-[10px] text-slate-300 font-mono group-hover:text-indigo-400">{getFlexibleValue(pos, ['공고 ID', 'ID'])}</span>
                       </button>
                     ))
                   ) : (
