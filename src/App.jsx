@@ -49,10 +49,9 @@ const App = () => {
 
   const dropdownRef = useRef(null);
   
-  // API Key
-  const apiKey = import.meta.env?.VITE_GEMINI_API_KEY || "AIzaSyBsttxX1PxzB5X0FPSkZbKXMPccK3hpfwk"; 
+  // 🔐 API Key (Vercel 환경변수 우선, 없으면 빈값 처리하여 에러 유도)
+  const apiKey = import.meta.env?.VITE_GEMINI_API_KEY || "VITE_GEMINI_API_KEY=AIzaSyBsttxX1PxzB5X0FPSkZbKXMPccK3hpfwk"; 
 
-  // --- Leadership Principles ---
   const LEADERSHIP_PRINCIPLES = `
     1. Design the Future: 미래를 긍정적으로 그리고 오늘의 문제를 치열하게 해결.
     2. Customer Obsession: 고객 관점에서 문제를 정의하고 해결책 구축.
@@ -66,27 +65,20 @@ const App = () => {
     10. Deliver Results: 결과로 증명하는 책임감.
   `;
 
-  // --- Flexible Column Finder ---
   const getFlexibleValue = (obj, targetKeys) => {
     if (!obj) return '';
     const keys = Object.keys(obj);
-    
-    // 1. 정확히 일치하는 키 찾기 (대소문자/공백 무시)
     for (const target of targetKeys) {
       const foundKey = keys.find(k => k.trim().toUpperCase() === target.toUpperCase());
       if (foundKey && obj[foundKey]) return obj[foundKey];
     }
-
-    // 2. 포함하는 키 찾기 (예: "JD 내용" 이라면 "JD" 키워드로 찾기)
     for (const target of targetKeys) {
       const foundKey = keys.find(k => k.trim().toUpperCase().includes(target.toUpperCase()));
       if (foundKey && obj[foundKey]) return obj[foundKey];
     }
-
     return '';
   };
 
-  // --- CSV Parser ---
   const parseCSV = (csvText) => {
     const lines = [];
     let currentLine = [];
@@ -126,13 +118,13 @@ const App = () => {
     setError(null);
     try {
       const response = await fetch(SHEET_CSV_URL);
-      if (!response.ok) throw new Error("시트 접근 실패");
+      if (!response.ok) throw new Error("시트 데이터 로드 실패. 공유 설정을 확인하세요.");
       const csvText = await response.text();
       const parsedData = parseCSV(csvText);
       setPositions(parsedData);
       setFilteredPositions(parsedData);
     } catch (err) { 
-      setError("시트 공유 설정을 확인해 주세요."); 
+      setError("데이터 동기화 실패. 시트 공유 상태를 확인해 주세요."); 
     }
     finally { setSyncing(false); }
   };
@@ -146,20 +138,14 @@ const App = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // --- Search Logic ---
   const handleSearch = (e) => {
     const term = e.target.value;
     setSearchTerm(term);
     setIsDropdownOpen(true);
-    
-    if (selectedPosition) {
-      const name = getFlexibleValue(selectedPosition, ['포지션명', '포지션', '공고명']);
-      if (term !== name) {
-        setSelectedPosition(null);
-        setJdInput('');
-      }
+    if (selectedPosition && term !== getFlexibleValue(selectedPosition, ['포지션명', '포지션', '공고명'])) {
+      setSelectedPosition(null);
+      setJdInput('');
     }
-    
     const filtered = positions.filter(p => {
       const posName = getFlexibleValue(p, ['포지션명', '포지션', '공고명']).toLowerCase();
       const posId = getFlexibleValue(p, ['공고 ID', 'ID']).toLowerCase();
@@ -172,16 +158,10 @@ const App = () => {
     setSelectedPosition(pos);
     const name = getFlexibleValue(pos, ['포지션명', '포지션', '공고명']);
     const content = getFlexibleValue(pos, ['JD 내용', 'JD', '직무기술서']);
-    
     setSearchTerm(name);
     setJdInput(content);
     setIsDropdownOpen(false);
     setError(null);
-
-    if (!content || content.trim() === '') {
-      const allKeys = Object.keys(pos).join(', ');
-      setError(`"JD 내용" 컬럼의 데이터를 찾을 수 없습니다. (확인된 컬럼: ${allKeys})`);
-    }
   };
 
   const handleFileUpload = (e) => {
@@ -190,32 +170,43 @@ const App = () => {
   };
 
   const handleGenerate = async () => {
-    if (!selectedPosition) { setError('목록에서 포지션을 클릭하여 선택해 주세요.'); return; }
-    if (!jdInput) { setError('JD 내용이 비어 있습니다.'); return; }
+    if (!apiKey) {
+      setError("API 키가 설정되지 않았습니다. Vercel 환경 변수 'VITE_GEMINI_API_KEY'를 확인하거나 코드에 키를 넣어주세요.");
+      return;
+    }
+    if (!selectedPosition || !jdInput) {
+      setError("포지션을 선택해 주세요.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
     
     try {
       const systemPrompt = `당신은 15년 차 TA 팀장입니다. 뷰티셀렉션 JD와 LP를 분석하여 질문 20개를 생성하세요. JSON { "questions": [...] } 로만 응답하세요.`;
-      
+      const userMessage = `세션:${sessionType}\nJD:${jdInput}\n후보자요약:${resumeText}\nLP:${LEADERSHIP_PRINCIPLES}\n추가설명:${additionalContext}\n1차피드백:${firstRoundFeedback}`;
+
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `세션:${sessionType}\nJD:${jdInput}\n파일정보:${uploadedFile?.name || '없음'}\n이력서요약:${resumeText}\nLP:${LEADERSHIP_PRINCIPLES}\n추가설명:${additionalContext}\n1차피드백:${firstRoundFeedback}` }] }],
+          contents: [{ parts: [{ text: userMessage }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
           generationConfig: { responseMimeType: "application/json" }
         })
       });
 
-      if (!res.ok) throw new Error("AI 생성 오류");
+      if (!res.ok) {
+        const errorDetail = await res.json();
+        throw new Error(`[API 에러 ${res.status}] ${errorDetail.error?.message || "알 수 없는 API 에러"}`);
+      }
+
       const result = await res.json();
       const responseText = result.candidates[0].content.parts[0].text;
       const parsed = JSON.parse(responseText);
       setQuestions(parsed.questions || []);
     } catch (err) { 
-      setError(`질문 생성 실패: ${err.message}`); 
+      setError(err.message); 
     }
     finally { setLoading(false); }
   };
@@ -244,7 +235,7 @@ const App = () => {
                 <p className="text-[11px] text-indigo-600 font-bold uppercase tracking-[0.15em] flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" /> Premium Module
                 </p>
-                <span className="bg-slate-100 text-[9px] text-slate-400 px-2 py-0.5 rounded-full font-bold">v1.3 Column-Safe</span>
+                <span className="bg-slate-100 text-[9px] text-slate-400 px-2 py-0.5 rounded-full font-bold">v1.4 Debug-Ready</span>
             </div>
           </div>
         </div>
@@ -274,44 +265,25 @@ const App = () => {
                 <input 
                   type="text" 
                   className={`w-full pl-12 pr-12 py-5 bg-slate-50 border rounded-[24px] text-sm font-bold outline-none transition-all shadow-sm ${selectedPosition ? 'border-indigo-500 ring-4 ring-indigo-500/5 text-indigo-900' : 'border-slate-200 text-slate-700 focus:ring-4 focus:ring-indigo-500/10'}`}
-                  placeholder="포지션명 검색 (목록에서 클릭해 주세요)"
+                  placeholder="포지션 검색 (클릭하여 선택)"
                   value={searchTerm}
                   onChange={handleSearch}
                   onFocus={() => setIsDropdownOpen(true)}
                 />
-                {selectedPosition ? (
-                    <Check className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500" />
-                ) : (
-                    <ChevronDown className={`absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
-                )}
+                {selectedPosition ? <Check className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500" /> : <ChevronDown className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />}
               </div>
-              
               {isDropdownOpen && (
-                <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-[24px] shadow-2xl z-[100] max-h-64 overflow-y-auto scrollbar-hide py-2 animate-in fade-in slide-in-from-top-2">
-                  {filteredPositions.length > 0 ? (
-                    filteredPositions.map((pos, idx) => (
-                      <button 
-                        key={idx} 
-                        onClick={() => selectPosition(pos)}
-                        className="w-full px-6 py-4 text-left hover:bg-slate-50 flex items-center justify-between group transition-colors border-b border-slate-50 last:border-0"
-                      >
-                        <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{getFlexibleValue(pos, ['포지션명', '포지션', '공고명']) || '이름 없음'}</span>
-                        <span className="text-[10px] text-slate-300 font-mono group-hover:text-indigo-400">{getFlexibleValue(pos, ['공고 ID', 'ID'])}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="px-6 py-8 text-center text-slate-400 text-xs italic">매칭되는 데이터가 없습니다.</div>
-                  )}
+                <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-[24px] shadow-2xl z-[100] max-h-64 overflow-y-auto scrollbar-hide py-2">
+                  {filteredPositions.length > 0 ? filteredPositions.map((pos, idx) => (
+                    <button key={idx} onClick={() => selectPosition(pos)} className="w-full px-6 py-4 text-left hover:bg-slate-50 flex items-center justify-between group transition-colors border-b border-slate-50 last:border-0">
+                      <span className="text-sm font-bold text-slate-700">{getFlexibleValue(pos, ['포지션명', '포지션', '공고명'])}</span>
+                      <span className="text-[10px] text-slate-300 font-mono">{getFlexibleValue(pos, ['공고 ID', 'ID'])}</span>
+                    </button>
+                  )) : <div className="px-6 py-8 text-center text-slate-400 text-xs">검색 결과가 없습니다.</div>}
                 </div>
               )}
             </div>
-            {jdInput && (
-              <div className="relative animate-in slide-in-from-top-4 duration-500">
-                <div className="absolute top-4 left-6 z-10 bg-indigo-600 text-[9px] font-black text-white px-2 py-0.5 rounded uppercase tracking-widest shadow-lg">JD Content Locked</div>
-                <textarea className="w-full h-40 p-8 pt-10 bg-slate-900 text-indigo-100 rounded-[28px] text-[11px] font-mono outline-none resize-none leading-relaxed overflow-y-auto shadow-2xl border border-slate-800" value={jdInput} readOnly />
-                <div className="absolute bottom-4 right-4"><Gem className="w-4 h-4 text-indigo-400/30" /></div>
-              </div>
-            )}
+            {jdInput && <textarea className="w-full h-40 p-6 bg-slate-900 text-indigo-100 rounded-[28px] text-[11px] font-mono outline-none resize-none leading-relaxed overflow-y-auto shadow-2xl border border-slate-800" value={jdInput} readOnly />}
           </div>
 
           <div className="space-y-5">
@@ -322,44 +294,23 @@ const App = () => {
                 <div className="flex flex-col items-center gap-3">
                   <div className="bg-indigo-600 p-3 rounded-2xl shadow-lg"><FileText className="text-white w-6 h-6" /></div>
                   <p className="text-sm font-black text-slate-700">{uploadedFile.name}</p>
-                  <button onClick={(e) => { e.stopPropagation(); setUploadedFile(null); }} className="text-[11px] text-red-500 font-bold flex items-center gap-1 hover:underline"><X className="w-3 h-3" /> 제거</button>
                 </div>
               ) : (
-                <>
-                  <UploadCloud className="w-10 h-10 text-slate-300 mb-4 group-hover:text-indigo-400 transition-colors" />
-                  <p className="text-sm font-bold text-slate-500">이력서 파일 드래그 또는 클릭</p>
-                </>
+                <><UploadCloud className="w-10 h-10 text-slate-300 mb-4 transition-colors" /><p className="text-sm font-bold text-slate-500">이력서 파일 업로드</p></>
               )}
             </div>
-            <textarea 
-              className="w-full h-32 p-6 bg-white border border-slate-200 rounded-[28px] text-sm shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-300"
-              placeholder="후보자의 주요 성과나 특징을 요약해서 적어주세요."
-              value={resumeText}
-              onChange={(e) => setResumeText(e.target.value)}
-            />
+            <textarea className="w-full h-32 p-6 bg-white border border-slate-200 rounded-[28px] text-sm shadow-sm outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all placeholder:text-slate-300" placeholder="후보자 성과 요약..." value={resumeText} onChange={(e) => setResumeText(e.target.value)} />
           </div>
 
           <div className="space-y-5">
             <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MessageSquare className="w-4 h-4 text-indigo-500" /> Step 3. 추가 설명</label>
             <div className="space-y-4">
-              {sessionType === '2nd_interview' && (
-                <textarea 
-                  className="w-full h-28 p-5 bg-amber-50 border border-amber-100 rounded-[24px] text-xs outline-none shadow-sm font-medium"
-                  placeholder="1차 면접 피드백 입력..."
-                  value={firstRoundFeedback}
-                  onChange={(e) => setFirstRoundFeedback(e.target.value)}
-                />
-              )}
-              <textarea 
-                className="w-full h-28 p-5 bg-white border border-slate-200 rounded-[24px] text-sm outline-none focus:ring-4 focus:ring-indigo-500/10 shadow-sm"
-                placeholder="예: '최우선적인 평가 기준은 성과 중심의 사고 구조입니다.', '현재 팀에서는 신규 서비스 런칭 경험이 있는 시니어 니즈가 큽니다.' 등"
-                value={additionalContext}
-                onChange={(e) => setAdditionalContext(e.target.value)}
-              />
+              {sessionType === '2nd_interview' && <textarea className="w-full h-28 p-5 bg-amber-50 border border-amber-100 rounded-[24px] text-xs outline-none" placeholder="1차 면접 피드백 필수..." value={firstRoundFeedback} onChange={(e) => setFirstRoundFeedback(e.target.value)} />}
+              <textarea className="w-full h-28 p-5 bg-white border border-slate-200 rounded-[24px] text-sm outline-none" placeholder="예시: 최우선 평가 기준은 성과 중심 사고방식입니다." value={additionalContext} onChange={(e) => setAdditionalContext(e.target.value)} />
             </div>
           </div>
 
-          {error && <div className="p-5 bg-red-50 text-red-600 rounded-[24px] text-[11px] font-bold border border-red-100 shadow-sm flex items-start gap-3 animate-in shake duration-500"><AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span></div>}
+          {error && <div className="p-5 bg-red-50 text-red-600 rounded-[24px] text-[11px] font-bold border border-red-100 shadow-sm flex items-start gap-3"><AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /><span>{error}</span></div>}
 
           <button onClick={handleGenerate} disabled={loading || syncing} className="w-full bg-slate-900 text-white py-6 rounded-[32px] font-black text-base shadow-2xl transition-all flex items-center justify-center gap-4 hover:bg-black active:scale-[0.98] disabled:opacity-50">
             {loading ? <Loader2 className="w-6 h-6 animate-spin text-indigo-400" /> : <Send className="w-6 h-6" />} {loading ? "전략 분석 중..." : "Generate Interview Guide"}
@@ -371,23 +322,18 @@ const App = () => {
             <div className="max-w-5xl mx-auto animate-in fade-in duration-700 pb-32">
               <div className="flex justify-between items-end mb-14">
                 <h2 className="text-6xl font-black text-slate-900 tracking-tighter leading-tight italic">Selection Guide</h2>
-                <button onClick={copyToClipboard} className="px-10 py-5 bg-white border-2 border-slate-900 rounded-[30px] text-sm font-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all">전체 복사</button>
+                <button onClick={copyToClipboard} className="px-10 py-5 bg-white border-2 border-slate-900 rounded-[30px] text-sm font-black shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] active:shadow-none transition-all">전체 복사</button>
               </div>
               <div className="bg-white rounded-[64px] shadow-2xl border border-white overflow-hidden">
                 <table className="w-full text-left">
                   <thead className="bg-slate-900 text-white">
-                    <tr>
-                      <th className="px-12 py-8 text-[11px] font-black uppercase w-24 text-center">No</th>
-                      <th className="px-12 py-8 text-[11px] font-black uppercase w-56 text-indigo-400">Validation</th>
-                      <th className="px-12 py-8 text-[11px] font-black uppercase">Question</th>
-                      <th className="px-12 py-8 text-[11px] font-black uppercase w-72 text-right text-slate-500">Strategy</th>
-                    </tr>
+                    <tr><th className="px-12 py-8 text-[11px] font-black uppercase w-24 text-center">No</th><th className="px-12 py-8 text-[11px] font-black uppercase w-56 text-indigo-400">Validation</th><th className="px-12 py-8 text-[11px] font-black uppercase">Question</th><th className="px-12 py-8 text-[11px] font-black uppercase w-72 text-right text-slate-500">Strategy</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {questions.map((q) => (
-                      <tr key={q.no} className="hover:bg-indigo-50/30 group transition-all">
-                        <td className="px-12 py-10 text-base text-slate-300 font-black text-center group-hover:text-indigo-500">{q.no}</td>
-                        <td className="px-12 py-10"><span className="px-5 py-2.5 bg-slate-50 text-slate-600 rounded-2xl text-[10px] font-black group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm uppercase">{q.group}</span></td>
+                      <tr key={q.no} className="hover:bg-indigo-50/30 group">
+                        <td className="px-12 py-10 text-base text-slate-300 font-black text-center">{q.no}</td>
+                        <td className="px-12 py-10"><span className="px-5 py-2.5 bg-slate-50 text-slate-600 rounded-2xl text-[10px] font-black group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">{q.group}</span></td>
                         <td className="px-12 py-10 font-bold text-[18px] text-slate-800 leading-snug group-hover:text-indigo-950 transition-colors tracking-tight">{q.content}</td>
                         <td className="px-12 py-10 text-right italic text-[11px] text-slate-400 font-bold leading-tight">{q.intent}</td>
                       </tr>
@@ -398,12 +344,10 @@ const App = () => {
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center space-y-12 animate-in fade-in duration-1000">
-              <div className="w-64 h-64 bg-white rounded-[72px] shadow-2xl flex items-center justify-center border border-white animate-bounce duration-[5000ms]">
-                <Target className="w-28 h-28 text-indigo-500" />
-              </div>
+              <div className="w-64 h-64 bg-white rounded-[72px] shadow-2xl flex items-center justify-center border border-white animate-bounce duration-[5000ms]"><Target className="w-28 h-28 text-indigo-500" /></div>
               <div className="text-center space-y-4">
                 <h3 className="text-5xl font-black text-slate-900 tracking-tighter leading-tight">Ready to Deep Scan</h3>
-                {positions.length === 0 && !syncing && <p className="text-red-500 font-bold">시트 데이터를 불러오지 못했습니다. [공유 설정]을 확인하세요!</p>}
+                <p className="text-slate-400 font-bold max-w-sm mx-auto leading-relaxed">포지션을 선택하고 질문을 생성하세요.</p>
               </div>
             </div>
           )}
